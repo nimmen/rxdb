@@ -255,7 +255,10 @@ export function replicateExistingDocuments(fromCollection, toCollection) {
 
 export function setIndexes(schema, pouch) {
   return Promise.all(schema.indexes.map(function (indexAr) {
+    var indexName = 'idx-rxdb-' + indexAr.join(',');
     return pouch.createIndex({
+      ddoc: indexName,
+      name: indexName,
       index: {
         fields: indexAr
       }
@@ -372,6 +375,7 @@ export var prototypes = {
   }
 };
 export var RxDBInMemoryPlugin = {
+  name: 'in-memory',
   rxdb: rxdb,
   prototypes: prototypes
 };

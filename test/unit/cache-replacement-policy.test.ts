@@ -1,6 +1,6 @@
 import assert from 'assert';
 import config from './config';
-import AsyncTestUtil, { wait } from 'async-test-util';
+import AsyncTestUtil, { wait, waitUntil } from 'async-test-util';
 
 import * as humansCollection from '../helper/humans-collection';
 import * as schemaObjects from '../helper/schema-objects';
@@ -10,8 +10,10 @@ import {
     RxCollection,
     QueryCache,
     triggerCacheReplacement,
-} from '../../';
-import { Subscription } from 'rxjs';
+    RxQuery,
+} from '../../plugins/core';
+import { BehaviorSubject, Subscription } from 'rxjs';
+import { mergeMap, shareReplay, switchMap } from 'rxjs/operators';
 
 config.parallel('cache-replacement-policy.test.js', () => {
     function clearQueryCache(collection: RxCollection) {
@@ -81,12 +83,59 @@ config.parallel('cache-replacement-policy.test.js', () => {
             const removeAgain = stillOneSub.$.subscribe();
             removeAgain.unsubscribe();
 
+            const noMoreSub = col.find({
+                selector: {
+                    foo: 'bar5'
+                }
+            });
+            const removeMe = noMoreSub.$.subscribe();
+            removeMe.unsubscribe();
+
+
             assert.strictEqual(countRxQuerySubscribers(noSub), 0);
             assert.strictEqual(countRxQuerySubscribers(oneSub), 1);
             assert.strictEqual(countRxQuerySubscribers(twoSub), 2);
             assert.strictEqual(countRxQuerySubscribers(stillOneSub), 1);
+            assert.strictEqual(countRxQuerySubscribers(noMoreSub), 0);
 
             subs.forEach(sub => sub.unsubscribe());
+            col.database.destroy();
+        });
+        it('BUG wrong count when used with switch map', async () => {
+            const col = await humansCollection.create(0);
+            const root$ = new BehaviorSubject(1);
+            let query: RxQuery | null = null;
+            const nested = root$.pipe(
+                mergeMap(async (id) => {
+                    return id;
+                }),
+                switchMap(() => {
+                    query = col.findOne('foobar');
+                    return query.$;
+                }),
+                /**
+                 * This shareReplay made
+                 * having countRxQuerySubscribers() return more then 0
+                 * we have to set refCount: true so it will unsubscribe from the root
+                 * when has no longer any subscribing children.
+                 * @link https://cartant.medium.com/rxjs-whats-changed-with-sharereplay-65c098843e95
+                 */
+                shareReplay({
+                    bufferSize: 1,
+                    refCount: true
+                })
+            );
+            let emitted = 0;
+            const sub = nested.subscribe(() => emitted++);
+            await waitUntil(() => !!query && emitted === 1);
+
+            if (!query) {
+                throw new Error('query undefined');
+            }
+
+            sub.unsubscribe();
+            assert.strictEqual(countRxQuerySubscribers(query), 0);
+
             col.database.destroy();
         });
     });
@@ -189,7 +238,7 @@ config.parallel('cache-replacement-policy.test.js', () => {
         });
     });
     describe('.triggerCacheReplacement()', () => {
-        it('should run after waitTime exactly once', async () => {
+        it('should run exactly once', async () => {
             const col = await humansCollection.create(0);
 
             let runs = 0;
@@ -204,35 +253,18 @@ config.parallel('cache-replacement-policy.test.js', () => {
             col.cacheReplacementPolicy = trackingPolicy;
 
             new Array(5).fill(0).forEach(() => {
-                triggerCacheReplacement(
-                    col,
-                    100
-                );
+                triggerCacheReplacement(col);
             });
-
-            await wait(10);
-            assert.strictEqual(runs, 0);
 
             await wait(150);
             assert.strictEqual(runs, 1);
 
             // run again when first was done
-            triggerCacheReplacement(
-                col,
-                10
-            );
+            triggerCacheReplacement(col);
             await wait(20);
             assert.strictEqual(runs, 2);
 
             col.database.destroy();
         });
     });
-
-    // TODO
-    describe('TODO remove me', () => {
-        it('exit', () => {
-            //   process.exit();
-        });
-    });
-
 });

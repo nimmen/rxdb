@@ -12,16 +12,17 @@ import {
     clone,
     trimDots,
     getHeightOfRevision,
-    toPromise,
     pluginMissing,
-    now
+    now,
+    nextTick
 } from './util';
 import {
     RxChangeEvent, createUpdateEvent, createDeleteEvent
 } from './rx-change-event';
 import {
     newRxError,
-    newRxTypeError
+    newRxTypeError,
+    isPouchdbConflictError
 } from './rx-error';
 import {
     runPluginHooks
@@ -63,7 +64,7 @@ export const basePrototype = {
         if (!_this.isInstanceOfRxDocument) {
             return undefined;
         }
-        return _this._data[_this.primaryPath];
+        return (_this._data as any)[_this.primaryPath];
     },
     get revision() {
         const _this: RxDocument = this as any;
@@ -226,7 +227,7 @@ export const basePrototype = {
     toJSON(this: RxDocument, withRevAndAttachments = false) {
         const data = clone(this._data);
         if (!withRevAndAttachments) {
-            delete data._rev;
+            delete (data as any)._rev;
             delete data._attachments;
         }
         return data;
@@ -292,28 +293,73 @@ export const basePrototype = {
         throw pluginMissing('attachments');
     },
 
+
     /**
      * runs an atomic update over the document
-     * @param fun that takes the document-data and returns a new data-object
+     * @param function that takes the document-data and returns a new data-object
      */
-    atomicUpdate(this: RxDocument, fun: Function): Promise<RxDocument> {
-        this._atomicQueue = this._atomicQueue
-            .then(() => {
-                const oldData = this._dataSync$.getValue();
-                const ret = fun(clone(this._dataSync$.getValue()), this);
-                const retPromise = toPromise(ret);
-                return retPromise
-                    .then(newData => {
-                        // collection does not exist on local documents
-                        if (this.collection) {
-                            newData = this.collection.schema.fillObjectWithDefaults(newData);
+    atomicUpdate(this: RxDocument, mutationFunction: Function): Promise<RxDocument> {
+        return new Promise((res, rej) => {
+            this._atomicQueue = this._atomicQueue
+                .then(async () => {
+                    let done = false;
+                    // we need a hacky while loop to stay incide the chain-link of _atomicQueue
+                    // while still having the option to run a retry on conflicts
+                    while (!done) {
+                        const oldData = this._dataSync$.getValue();
+                        try {
+                            // always await because mutationFunction might be async
+                            let newData = await mutationFunction(clone(this._dataSync$.getValue()), this);
+                            if (this.collection) {
+                                newData = this.collection.schema.fillObjectWithDefaults(newData);
+                            }
+                            await this._saveData(newData, oldData);
+                            done = true;
+                        } catch (err) {
+                            /**
+                             * conflicts cannot happen by just using RxDB in one process
+                             * There are two ways they still can appear which is
+                             * replication and multi-tab usage
+                             * Because atomicUpdate has a mutation function,
+                             * we can just re-run the mutation until there is no conflict
+                             */
+                            if (isPouchdbConflictError(err)) {
+                                // we need to free the cpu for a tick or the browser tests will fail
+                                await nextTick();
+                                // pouchdb conflict error -> retrying
+                            } else {
+                                rej(err);
+                                return;
+                            }
                         }
-                        return this._saveData(newData, oldData);
-                    });
-            });
-        return this._atomicQueue.then(() => this);
+                    }
+                    res(this);
+                });
+        });
     },
 
+
+    /**
+     * patches the given properties
+     */
+    atomicPatch<RxDocumentType = any>(
+        this: RxDocument<RxDocumentType>,
+        patch: Partial<RxDocumentType>
+    ): Promise<RxDocument<RxDocumentType>> {
+        return this.atomicUpdate((docData: RxDocumentType) => {
+            Object
+                .entries(patch)
+                .forEach(([k, v]) => {
+                    (docData as any)[k] = v;
+                });
+            return docData;
+        });
+    },
+
+    /**
+     * @deprecated use atomicPatch instead because it is better typed
+     * and does not allow any keys and values
+     */
     atomicSet(this: RxDocument, key: string, value: any) {
         return this.atomicUpdate(docData => {
             objectPath.set(docData, key, value);

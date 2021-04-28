@@ -294,7 +294,10 @@ export function setIndexes(
     return Promise.all(
         schema.indexes
             .map(indexAr => {
+                const indexName = 'idx-rxdb-' + indexAr.join(',');
                 return pouch.createIndex({
+                    ddoc: indexName,
+                    name: indexName,
                     index: {
                         fields: indexAr
                     }
@@ -415,6 +418,7 @@ export const prototypes = {
 };
 
 export const RxDBInMemoryPlugin: RxPlugin = {
+    name: 'in-memory',
     rxdb,
     prototypes
 };

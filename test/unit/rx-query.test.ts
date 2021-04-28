@@ -7,21 +7,32 @@ import {
     first
 } from 'rxjs/operators';
 
-import {
-    isRxQuery,
-    createRxDatabase
-} from '../../';
 import * as humansCollection from './../helper/humans-collection';
 import * as schemaObjects from '../helper/schema-objects';
 import * as schemas from './../helper/schemas';
 
 import {
+    isRxQuery,
+    createRxDatabase,
     RxJsonSchema,
     promiseWait,
     randomCouchString
-} from '../../';
+} from '../../plugins/core';
 
 config.parallel('rx-query.test.js', () => {
+    describe('.constructor', () => {
+        it('should throw dev-mode error on wrong query object', async () => {
+            const col = await humansCollection.create(0);
+
+            await AsyncTestUtil.assertThrows(
+                () => col.find({ foo: 'bar' } as any),
+                'RxTypeError',
+                'no valid query params'
+            );
+
+            col.database.destroy();
+        });
+    });
     describe('.toJSON()', () => {
         it('should produce the correct selector-object', async () => {
             const col = await humansCollection.create(0);
@@ -972,11 +983,15 @@ config.parallel('rx-query.test.js', () => {
             });
 
             await col.pouch.createIndex({
+                name: 'idx-rxdb-info',
+                ddoc: 'idx-rxdb-info',
                 index: {
                     fields: ['info']
                 }
             });
             await col.pouch.createIndex({
+                name: 'idx-rxdb-info.title',
+                ddoc: 'idx-rxdb-info.title',
                 index: {
                     fields: ['info.title']
                 }

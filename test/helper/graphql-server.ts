@@ -56,7 +56,7 @@ export interface GraphqlServer<T> {
     overwriteDocuments(docs: T[]): void;
     getDocuments(): T[];
     requireHeader(name: string, value: string): void;
-    close(now?: boolean): void;
+    close(now?: boolean): Promise<void>;
 }
 
 export interface GraphQLServerModule {
@@ -216,8 +216,15 @@ export async function spawn(
             return;
         }
         if (req.header(reqHeaderName.toLowerCase()) !== reqHeaderValue) {
-            res.status(401).json({
-                errors: ['Unauthorized']
+            res.status(200).json({
+                'errors': [
+                    {
+                        'extensions': {
+                            'code': 'UNAUTHENTICATED'
+                        },
+                        'message': 'user not authenticated'
+                    }
+                ]
             });
         } else {
             next();
@@ -293,7 +300,7 @@ export async function spawn(
                         } else {
                             reqHeaderName = name;
                             reqHeaderValue = value;
-                            const headers: {[key: string]: string} = {};
+                            const headers: { [key: string]: string } = {};
                             headers[name] = value;
                             client = graphQlClient({
                                 url: ret,
@@ -305,6 +312,7 @@ export async function spawn(
                         if (now) {
                             server.close();
                             subServer.close();
+                            return Promise.resolve();
                         } else {
                             return new Promise(res2 => {
                                 setTimeout(() => {

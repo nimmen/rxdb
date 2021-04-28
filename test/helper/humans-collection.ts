@@ -9,17 +9,18 @@ import {
     PouchDB,
     RxDatabase,
     randomCouchString
-} from '../../';
+} from '../../plugins/core';
 
 import {
     HumanDocumentType
 } from './schema-objects';
+import { MigrationStrategies } from '../../src/types';
 
 export async function create(
     size: number = 20,
     name: string = 'human',
     multiInstance: boolean = true
-): Promise<RxCollection<HumanDocumentType>> {
+): Promise<RxCollection<HumanDocumentType, {}, {}>> {
     if (!name) name = 'human';
     PouchDB.plugin(require('pouchdb-adapter-memory'));
     const db = await createRxDatabase<{ human: RxCollection<schemaObjects.HumanDocumentType> }>({
@@ -48,7 +49,7 @@ export async function create(
 export async function createBySchema<RxDocumentType = {}>(
     schema: RxJsonSchema,
     name = 'human'
-): Promise<RxCollection<RxDocumentType>> {
+): Promise<RxCollection<RxDocumentType, {}, {}>> {
     PouchDB.plugin(require('pouchdb-adapter-memory'));
 
     const db = await createRxDatabase<{ [prop: string]: RxCollection<RxDocumentType> }>({
@@ -71,7 +72,7 @@ export async function createAttachments(
     size = 20,
     name = 'human',
     multiInstance = true
-): Promise<RxCollection<schemaObjects.HumanDocumentType>> {
+): Promise<RxCollection<schemaObjects.HumanDocumentType, {}, {}>> {
 
     if (!name) name = 'human';
     PouchDB.plugin(require('pouchdb-adapter-memory'));
@@ -106,7 +107,7 @@ export async function createEncryptedAttachments(
     size = 20,
     name = 'human',
     multiInstance = true
-): Promise<RxCollection<schemaObjects.HumanDocumentType>> {
+): Promise<RxCollection<schemaObjects.HumanDocumentType, {}, {}>> {
 
     if (!name) name = 'human';
     PouchDB.plugin(require('pouchdb-adapter-memory'));
@@ -340,7 +341,7 @@ export async function createMultiInstance(
     name: string,
     amount = 0,
     password = null
-): Promise<RxCollection<schemaObjects.HumanDocumentType>> {
+): Promise<RxCollection<schemaObjects.HumanDocumentType, {}, {}>> {
     PouchDB.plugin(require('pouchdb-adapter-memory'));
 
     const db = await createRxDatabase<{ human: RxCollection<schemaObjects.HumanDocumentType> }>({
@@ -427,7 +428,7 @@ export async function createHumanWithTimestamp(
 
 export async function createMigrationCollection(
     amount = 0,
-    addMigrationStrategies = {},
+    addMigrationStrategies: MigrationStrategies = {},
     name = randomCouchString(10),
     autoMigrate = false
 ): Promise<RxCollection<schemaObjects.SimpleHumanV3DocumentType>> {

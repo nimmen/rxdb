@@ -107,6 +107,7 @@ var RxQueryBase = /*#__PURE__*/function () {
 
       default:
         throw (0, _rxError.newRxError)('QU1', {
+          collection: this.collection.name,
           op: this.op
         });
     }
@@ -136,6 +137,7 @@ var RxQueryBase = /*#__PURE__*/function () {
     // TODO this should be ensured by typescript
     if (throwIfMissing && this.op !== 'findOne') {
       throw (0, _rxError.newRxError)('QU9', {
+        collection: this.collection.name,
         query: this.mangoQuery,
         op: this.op
       });
@@ -152,6 +154,7 @@ var RxQueryBase = /*#__PURE__*/function () {
     }).then(function (result) {
       if (!result && throwIfMissing) {
         throw (0, _rxError.newRxError)('QU10', {
+          collection: _this2.collection.name,
           query: _this2.mangoQuery,
           op: _this2.op
         });
@@ -304,7 +307,7 @@ var RxQueryBase = /*#__PURE__*/function () {
       if (!this._$) {
         /**
          * We use _resultsDocs$ to emit new results
-         * This also ensure that there is a reemit on subscribe
+         * This also ensures that there is a reemit on subscribe
          */
         var results$ = this._resultsDocs$.pipe((0, _operators.mergeMap)(function (docs) {
           return _ensureEqual(_this3).then(function (hasChanged) {
@@ -325,7 +328,7 @@ var RxQueryBase = /*#__PURE__*/function () {
           // copy the array so it wont matter if the user modifies it
           var ret = Array.isArray(docs) ? docs.slice() : docs;
           return ret;
-        }))['asObservable']();
+        })).asObservable();
         /**
          * subscribe to the changeEvent-stream so it detects changes if it has subscribers
          */
@@ -391,6 +394,11 @@ function createRxQuery(op, queryObj, collection) {
     });
   }
 
+  (0, _hooks.runPluginHooks)('preCreateRxQuery', {
+    op: op,
+    queryObj: queryObj,
+    collection: collection
+  });
   var ret = new RxQueryBase(op, queryObj, collection); // ensure when created with same params, only one is created
 
   ret = tunnelQueryCache(ret);
@@ -440,18 +448,28 @@ function _ensureEqual(rxQuery) {
 
 function __ensureEqual(rxQuery) {
   rxQuery._lastEnsureEqual = (0, _util.now)();
-  if (rxQuery.collection.database.destroyed) return false; // db is closed
 
-  if (_isResultsInSync(rxQuery)) return false; // nothing happend
+  if (rxQuery.collection.database.destroyed) {
+    // db is closed
+    return false;
+  }
+
+  if (_isResultsInSync(rxQuery)) {
+    // nothing happend
+    return false;
+  }
 
   var ret = false;
   var mustReExec = false; // if this becomes true, a whole execution over the database is made
 
-  if (rxQuery._latestChangeEvent === -1) mustReExec = true; // have not executed yet -> must run
-
+  if (rxQuery._latestChangeEvent === -1) {
+    // have not executed yet -> must run
+    mustReExec = true;
+  }
   /**
    * try to use the queryChangeDetector to calculate the new results
    */
+
 
   if (!mustReExec) {
     var missedChangeEvents = rxQuery.collection._changeEventBuffer.getFrom(rxQuery._latestChangeEvent + 1);

@@ -6,7 +6,7 @@ import { DocCache } from './doc-cache';
 import { QueryCache } from './query-cache';
 import { ChangeEventBuffer } from './change-event-buffer';
 import type { Subscription, Observable } from 'rxjs';
-import type { PouchSettings, KeyFunctionMap, RxReplicationState, PouchDBInstance, MigrationState, SyncOptions, RxCollection, RxDatabase, RxQuery, RxDocument, SyncOptionsGraphQL, RxDumpCollection, RxDumpCollectionAny, MangoQuery, MangoQueryNoLimit, RxCacheReplacementPolicy } from './types';
+import type { PouchSettings, KeyFunctionMap, RxReplicationState, PouchDBInstance, MigrationState, SyncOptions, RxCollection, RxDatabase, RxQuery, RxDocument, SyncOptionsGraphQL, RxDumpCollection, RxDumpCollectionAny, MangoQuery, MangoQueryNoLimit, RxCacheReplacementPolicy, PouchWriteError } from './types';
 import type { RxGraphQLReplicationState } from './plugins/replication-graphql';
 import { RxSchema } from './rx-schema';
 export declare class RxCollectionBase<RxDocumentType = {
@@ -52,7 +52,11 @@ export declare class RxCollectionBase<RxDocumentType = {
      */
     private _onDestroy?;
     private _onDestroyCall?;
-    prepare(): Promise<[any, void[]]>;
+    prepare(
+    /**
+     * set to true if the collection data already exists on this storage adapter
+     */
+    wasCreatedBefore: boolean): Promise<[any, any]>;
     migrationNeeded(): Promise<boolean>;
     getDataMigrator(): DataMigrator;
     migrate(batchSize?: number): Observable<MigrationState>;
@@ -79,6 +83,10 @@ export declare class RxCollectionBase<RxDocumentType = {
     insert(json: RxDocumentType | RxDocument): Promise<RxDocument<RxDocumentType, OrmMethods>>;
     bulkInsert(docsData: RxDocumentType[]): Promise<{
         success: RxDocument<RxDocumentType, OrmMethods>[];
+        error: PouchWriteError[];
+    }>;
+    bulkRemove(ids: string[]): Promise<{
+        success: RxDocument<RxDocumentType, OrmMethods>[];
         error: any[];
     }>;
     /**
@@ -96,6 +104,11 @@ export declare class RxCollectionBase<RxDocumentType = {
      * has way better performance then running multiple findOne() or a find() with a complex $or-selected
      */
     findByIds(ids: string[]): Promise<Map<string, RxDocument<RxDocumentType, OrmMethods>>>;
+    /**
+     * like this.findByIds but returns an observable
+     * that always emitts the current state
+     */
+    findByIds$(ids: string[]): Observable<Map<string, RxDocument<RxDocumentType, OrmMethods>>>;
     /**
      * Export collection to a JSON friendly format.
      * @param _decrypted
@@ -152,7 +165,7 @@ export declare class RxCollectionBase<RxDocumentType = {
 /**
  * creates and prepares a new collection
  */
-export declare function create({ database, name, schema, pouchSettings, migrationStrategies, autoMigrate, statics, methods, attachments, options, cacheReplacementPolicy }: any): Promise<RxCollection>;
+export declare function create({ database, name, schema, pouchSettings, migrationStrategies, autoMigrate, statics, methods, attachments, options, cacheReplacementPolicy }: any, wasCreatedBefore: boolean): Promise<RxCollection>;
 export declare function isInstanceOf(obj: any): boolean;
 declare const _default: {
     create: typeof create;

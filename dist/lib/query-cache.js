@@ -7,16 +7,14 @@ exports.createQueryCache = createQueryCache;
 exports.uncacheRxQuery = uncacheRxQuery;
 exports.countRxQuerySubscribers = countRxQuerySubscribers;
 exports.triggerCacheReplacement = triggerCacheReplacement;
-exports.COLLECTIONS_WITH_DESTROY_HOOK = exports.CACHE_REPLACEMENT_STATE_BY_COLLECTION = exports.defaultCacheReplacementPolicy = exports.defaultCacheReplacementPolicyMonad = exports.DEFAULT_CACHE_REPLACEMENT_WAIT_TIME = exports.DEFAULT_UNEXECUTED_LIFETME = exports.DEFAULT_TRY_TO_KEEP_MAX = exports.QueryCache = void 0;
+exports.COLLECTIONS_WITH_RUNNING_CLEANUP = exports.defaultCacheReplacementPolicy = exports.defaultCacheReplacementPolicyMonad = exports.DEFAULT_UNEXECUTED_LIFETME = exports.DEFAULT_TRY_TO_KEEP_MAX = exports.QueryCache = void 0;
 
 var _util = require("./util");
 
-function _createForOfIteratorHelperLoose(o, allowArrayLike) { var it; if (typeof Symbol === "undefined" || o[Symbol.iterator] == null) { if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") { if (it) o = it; var i = 0; return function () { if (i >= o.length) return { done: true }; return { done: false, value: o[i++] }; }; } throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); } it = o[Symbol.iterator](); return it.next.bind(it); }
-
-function _unsupportedIterableToArray(o, minLen) { if (!o) return; if (typeof o === "string") return _arrayLikeToArray(o, minLen); var n = Object.prototype.toString.call(o).slice(8, -1); if (n === "Object" && o.constructor) n = o.constructor.name; if (n === "Map" || n === "Set") return Array.from(o); if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen); }
-
-function _arrayLikeToArray(arr, len) { if (len == null || len > arr.length) len = arr.length; for (var i = 0, arr2 = new Array(len); i < len; i++) { arr2[i] = arr[i]; } return arr2; }
-
+/**
+ * the query-cache makes sure that on every query-state, exactly one instance can exist
+ * if you use the same mango-query more then once, it will reuse the first RxQuery
+ */
 var QueryCache = /*#__PURE__*/function () {
   function QueryCache() {
     this._map = new Map();
@@ -62,8 +60,6 @@ function countRxQuerySubscribers(rxQuery) {
 var DEFAULT_TRY_TO_KEEP_MAX = 100;
 exports.DEFAULT_TRY_TO_KEEP_MAX = DEFAULT_TRY_TO_KEEP_MAX;
 var DEFAULT_UNEXECUTED_LIFETME = 30 * 1000;
-exports.DEFAULT_UNEXECUTED_LIFETME = DEFAULT_UNEXECUTED_LIFETME;
-var DEFAULT_CACHE_REPLACEMENT_WAIT_TIME = 20 * 1000;
 /**
  * The default cache replacement policy
  * See docs-src/query-cache.md to learn how it should work.
@@ -71,7 +67,7 @@ var DEFAULT_CACHE_REPLACEMENT_WAIT_TIME = 20 * 1000;
  * This is a monad which makes it easier to unit test
  */
 
-exports.DEFAULT_CACHE_REPLACEMENT_WAIT_TIME = DEFAULT_CACHE_REPLACEMENT_WAIT_TIME;
+exports.DEFAULT_UNEXECUTED_LIFETME = DEFAULT_UNEXECUTED_LIFETME;
 
 var defaultCacheReplacementPolicyMonad = function defaultCacheReplacementPolicyMonad(tryToKeepMax, unExecutedLifetime) {
   return function (_collection, queryCache) {
@@ -81,9 +77,10 @@ var defaultCacheReplacementPolicyMonad = function defaultCacheReplacementPolicyM
 
     var minUnExecutedLifetime = (0, _util.now)() - unExecutedLifetime;
     var maybeUncash = [];
+    var queriesInCache = Array.from(queryCache._map.values());
 
-    for (var _iterator = _createForOfIteratorHelperLoose(queryCache._map.values()), _step; !(_step = _iterator()).done;) {
-      var rxQuery = _step.value;
+    for (var _i = 0, _queriesInCache = queriesInCache; _i < _queriesInCache.length; _i++) {
+      var rxQuery = _queriesInCache[_i];
 
       // filter out queries with subscribers
       if (countRxQuerySubscribers(rxQuery) > 0) {
@@ -116,12 +113,9 @@ var defaultCacheReplacementPolicyMonad = function defaultCacheReplacementPolicyM
 };
 
 exports.defaultCacheReplacementPolicyMonad = defaultCacheReplacementPolicyMonad;
-var defaultCacheReplacementPolicy = defaultCacheReplacementPolicyMonad(DEFAULT_TRY_TO_KEEP_MAX, DEFAULT_UNEXECUTED_LIFETME); // @link https://stackoverflow.com/a/56239226/3443137
-
+var defaultCacheReplacementPolicy = defaultCacheReplacementPolicyMonad(DEFAULT_TRY_TO_KEEP_MAX, DEFAULT_UNEXECUTED_LIFETME);
 exports.defaultCacheReplacementPolicy = defaultCacheReplacementPolicy;
-var CACHE_REPLACEMENT_STATE_BY_COLLECTION = new WeakMap();
-exports.CACHE_REPLACEMENT_STATE_BY_COLLECTION = CACHE_REPLACEMENT_STATE_BY_COLLECTION;
-var COLLECTIONS_WITH_DESTROY_HOOK = new WeakSet();
+var COLLECTIONS_WITH_RUNNING_CLEANUP = new WeakSet();
 /**
  * Triggers the cache replacement policy after waitTime has passed.
  * We do not run this directly because at exactly the time a query is created,
@@ -129,33 +123,30 @@ var COLLECTIONS_WITH_DESTROY_HOOK = new WeakSet();
  * Also this should not be triggered multiple times when waitTime is still waiting.
  */
 
-exports.COLLECTIONS_WITH_DESTROY_HOOK = COLLECTIONS_WITH_DESTROY_HOOK;
+exports.COLLECTIONS_WITH_RUNNING_CLEANUP = COLLECTIONS_WITH_RUNNING_CLEANUP;
 
 function triggerCacheReplacement(rxCollection) {
-  var waitTime = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : DEFAULT_CACHE_REPLACEMENT_WAIT_TIME;
-
-  if (CACHE_REPLACEMENT_STATE_BY_COLLECTION.has(rxCollection)) {
+  if (COLLECTIONS_WITH_RUNNING_CLEANUP.has(rxCollection)) {
     // already started
     return;
-  } // ensure we clean up the runnung timeouts when the collection is destroyed
-
-
-  if (!COLLECTIONS_WITH_DESTROY_HOOK.has(rxCollection)) {
-    rxCollection.onDestroy.then(function () {
-      var timeout = CACHE_REPLACEMENT_STATE_BY_COLLECTION.get(rxCollection);
-
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    });
-    COLLECTIONS_WITH_DESTROY_HOOK.add(rxCollection);
   }
 
-  var val = setTimeout(function () {
-    CACHE_REPLACEMENT_STATE_BY_COLLECTION["delete"](rxCollection);
-    rxCollection.cacheReplacementPolicy(rxCollection, rxCollection._queryCache);
-  }, waitTime);
-  CACHE_REPLACEMENT_STATE_BY_COLLECTION.set(rxCollection, val);
+  COLLECTIONS_WITH_RUNNING_CLEANUP.add(rxCollection);
+  /**
+   * Do not run directly to not reduce result latency of a new query
+   */
+
+  (0, _util.nextTick)() // wait at least one tick
+  .then(function () {
+    return (0, _util.requestIdlePromise)();
+  }) // and then wait for the CPU to be idle
+  .then(function () {
+    if (!rxCollection.destroyed) {
+      rxCollection.cacheReplacementPolicy(rxCollection, rxCollection._queryCache);
+    }
+
+    COLLECTIONS_WITH_RUNNING_CLEANUP["delete"](rxCollection);
+  });
 }
 
 //# sourceMappingURL=query-cache.js.map

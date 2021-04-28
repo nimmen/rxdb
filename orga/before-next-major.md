@@ -72,6 +72,24 @@ In production-mode, there will be nothing that ensures immutability.
 ## server-plugin: overwrite defaults of pouchdbExpressOptions
 The defaults of `pouchdbExpressOptions` from `RxDatabase.server()` require the user to configure stuff to not polute the projects folder with config and log files. We should overwrite the defaults to use `inMemoryConfig: true` and store the logs in the tmp folder.
 
+## remove deprecated RxDocument.atomicSet()
+`atomicSet` is deprecated in favor of `atomicPatch`. Remove the function in the next major release.
+
+## remove RxDatabase.collection()
+It was replaced by `RxDatabase.addCollections()` which is faster and better typed.
+
+## rename wording of the json dump plugin
+The words `dump()` and `importDump()` are confusing. Name it import/export or sth.
+
+## set putAttachment(skipIfSame=true)
+
+This should be the default. `skipIfSame=true`
+
+## db.server() should be async
+
+`db.server()` should be async and reject the promise when the startup fails, for example because the port is already used.
+
+
 # Maybe
 
 ## Use Proxy instead of getters/setter on RxDocument

@@ -3,6 +3,7 @@
  * which should be easy to change
  */
 import randomToken from 'random-token';
+import type { BlobBuffer } from './types';
 import {
     default as deepClone
 } from 'clone';
@@ -185,6 +186,14 @@ export function trimDots(str: string): string {
     return str;
 }
 
+
+export function ensureNotFalsy<T>(obj: T | false | undefined | null): T {
+    if (!obj) {
+        throw new Error('ensureNotFalsy() is falsy');
+    }
+    return obj;
+}
+
 /**
  * deep-sort an object so its attributes are in lexical order.
  * Also sorts the arrays inside of the object if no-array-sort not set
@@ -338,6 +347,25 @@ export function getHeightOfRevision(revString: string): number {
     return parseInt(first, 10);
 }
 
+import { stringMd5 } from 'pouchdb-md5';
+import { rev as pouchUtilsRev } from 'pouchdb-utils';
+
+/**
+ * Creates a revision string that does NOT include the revision height
+ * Copied and adapted from pouchdb-utils/src/rev.js
+ * TODO not longer needed when this PR is merged: https://github.com/pouchdb/pouchdb/pull/8274
+ */
+export function createRevision(docData: any, deterministic_revs: boolean): string {
+    if (!deterministic_revs) {
+        return pouchUtilsRev(docData, false);
+    }
+
+    const docWithoutRev = Object.assign({}, docData, {
+        _rev: undefined,
+        _rev_tree: undefined
+    });
+    return stringMd5(JSON.stringify(docWithoutRev));
+}
 
 /**
  * prefix of local pouchdb documents
@@ -373,3 +401,67 @@ export function isFolderPath(name: string) {
         return false;
     }
 }
+
+
+
+
+export const blobBufferUtil = {
+    /**
+     * depending if we are on node or browser,
+     * we have to use Buffer(node) or Blob(browser)
+     */
+    createBlobBuffer(
+        data: string,
+        type: string
+    ): BlobBuffer {
+        let blobBuffer: any;
+
+        if (isElectronRenderer) {
+            // if we are inside of electron-renderer, always use the node-buffer
+            return Buffer.from(data, {
+                type
+            } as any);
+        }
+
+        try {
+            // for browsers
+            blobBuffer = new Blob([data], {
+                type
+            } as any);
+        } catch (e) {
+            // for node
+            blobBuffer = Buffer.from(data, {
+                type
+            } as any);
+        }
+        return blobBuffer;
+    },
+    toString(blobBuffer: BlobBuffer): Promise<string> {
+        if (blobBuffer instanceof Buffer) {
+            // node
+            return nextTick()
+                .then(() => blobBuffer.toString());
+        }
+        return new Promise(res => {
+            // browsers
+            const reader = new FileReader();
+            reader.addEventListener('loadend', e => {
+                const text = (e.target as any).result;
+                res(text);
+            });
+
+            const blobBufferType = Object.prototype.toString.call(blobBuffer);
+
+            /**
+             * in the electron-renderer we have a typed array insteaf of a blob
+             * so we have to transform it.
+             * @link https://github.com/pubkey/rxdb/issues/1371
+             */
+            if (blobBufferType === '[object Uint8Array]') {
+                blobBuffer = new Blob([blobBuffer]);
+            }
+
+            reader.readAsText(blobBuffer as any);
+        });
+    }
+};
